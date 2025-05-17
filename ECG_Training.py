@@ -174,7 +174,7 @@ def extract_heartbeats(record_nums=None):
                     count_classes[class_map[beat_type]] += 1
                     
                     # Print progress occasionally
-                    if sum(count_classes) % 100 == 0:
+                    if sum(count_classes) % 1000 == 0:
                         print(f"Processed {sum(count_classes)} beats. Current distribution: {count_classes}")
         
         except Exception as e:
