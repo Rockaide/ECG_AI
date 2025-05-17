@@ -78,15 +78,17 @@ def extract_heartbeats(record_nums=None):
     global n_classes, classes, class_map
     
     if record_nums is None:
-        # Use a smaller subset for testing
-        #record_nums = ['100', '101', '102', '103', '104']
-        # For full dataset, uncomment this:
-         record_nums = ['100', '101', '102', '103', '104', '105', '106', '107', 
+        # For full dataset
+        record_nums = ['100', '101', '102', '103', '104', '105', '106', '107', 
                        '108', '109', '111', '112', '113', '114', '115', '116', 
                        '117', '118', '119', '121', '122', '123', '124', '200', 
                        '201', '202', '203', '205', '207', '208', '209', '210', 
                        '212', '213', '214', '215', '217', '219', '220', '221', 
                        '222', '223', '228', '230', '231', '232', '233', '234']
+    
+    # Create a local directory for MIT-BIH data if it doesn't exist
+    local_data_dir = os.path.join(os.getcwd(), 'mitdb_data')
+    os.makedirs(local_data_dir, exist_ok=True)
     
     X = []
     y = []
@@ -95,13 +97,52 @@ def extract_heartbeats(record_nums=None):
     for record_num in record_nums:
         print(f"Processing record {record_num}...")
         
-        try:
-            # Download and read the record
-            record, annotation, temp_dir = download_record(record_num)
-            
-            if record is None:
-                continue
+        # Check if the record files already exist locally
+        record_files_exist = all(
+            os.path.exists(os.path.join(local_data_dir, f"{record_num}{ext}"))
+            for ext in ['.atr', '.dat', '.hea']
+        )
+        
+        if record_files_exist:
+            print(f"Record {record_num} found locally, using cached data.")
+            try:
+                # Read the local record
+                record = wfdb.rdrecord(os.path.join(local_data_dir, record_num), channels=[0])
+                annotation = wfdb.rdann(os.path.join(local_data_dir, record_num), 'atr')
+                temp_dir = None  # No temp directory needed
+            except Exception as e:
+                print(f"Error reading local record {record_num}: {e}")
+                record_files_exist = False  # Try downloading instead
+        
+        # If files don't exist locally or couldn't be read, download them
+        if not record_files_exist:
+            print(f"Record {record_num} not found locally, downloading...")
+            try:
+                # Download the record to a temporary directory first
+                record, annotation, temp_dir = download_record(record_num)
                 
+                if record is None:
+                    continue
+                
+                # Copy the downloaded files to our local data directory
+                for ext in ['.atr', '.dat', '.hea']:
+                    src_file = os.path.join(temp_dir, f"{record_num}{ext}")
+                    dst_file = os.path.join(local_data_dir, f"{record_num}{ext}")
+                    if os.path.exists(src_file):
+                        shutil.copy2(src_file, dst_file)
+                        print(f"Saved {dst_file} for future use")
+                
+                # Clean up the temporary directory
+                if temp_dir:
+                    shutil.rmtree(temp_dir)
+                    temp_dir = None
+            except Exception as e:
+                print(f"Error downloading record {record_num}: {e}")
+                if temp_dir:
+                    shutil.rmtree(temp_dir)
+                continue
+        
+        try:
             # Get signal data
             signals = record.p_signal
             
@@ -135,16 +176,21 @@ def extract_heartbeats(record_nums=None):
                     # Print progress occasionally
                     if sum(count_classes) % 100 == 0:
                         print(f"Processed {sum(count_classes)} beats. Current distribution: {count_classes}")
-            
-            # Clean up the temporary directory
-            if temp_dir:
-                shutil.rmtree(temp_dir)
         
         except Exception as e:
-            print(f"Error processing record {record_num}: {e}")
-            if temp_dir:
-                shutil.rmtree(temp_dir)
+            print(f"Error processing record {record_num} data: {e}")
             continue
+    
+    # Save processed data for future use
+    if len(X) > 0:
+        processed_data_dir = os.path.join(os.getcwd(), 'processed_data')
+        os.makedirs(processed_data_dir, exist_ok=True)
+        
+        # Save as numpy arrays
+        np.save(os.path.join(processed_data_dir, 'X_processed.npy'), np.array(X))
+        np.save(os.path.join(processed_data_dir, 'y_processed.npy'), np.array(y))
+        
+        print(f"Saved processed data to {processed_data_dir} for future use")
     
     if len(X) == 0:
         raise ValueError("No data was loaded. Check your internet connection and try again.")
